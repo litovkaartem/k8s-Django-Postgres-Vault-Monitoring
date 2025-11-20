@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+  template:
+    metadata:
+      labels:
+        app: postgresql
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "{{ .Values.vault.role }}"
+        vault.hashicorp.com/agent-inject-status: "update"
+        
+        vault.hashicorp.com/agent-inject-secret-postgres-secret: "secret/data/django-app/postgres"
+        vault.hashicorp.com/agent-inject-template-postgres-secret: |
+          {{`{{- with secret "secret/data/django-app/postgres" -}}
+          export POSTGRES_DB='{{ .Data.data.database }}'
+          export POSTGRES_USER='{{ .Data.data.username }}'
+          export POSTGRES_PASSWORD='{{ .Data.data.password }}'
+          export POSTGRES_POSTGRES_PASSWORD='{{ .Data.data.postgres_password }}'
+          {{- end -}}`}}
+    spec:
+      serviceAccountName: django-app-sa
+      containers:
+      - name: postgresql
+        image: {{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}
+        imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+        ports:
+        - containerPort: 5432
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            # Ждем пока Vault inject'ит секреты
+            echo "Waiting for Vault secrets..."
+            counter=0
+            while [ ! -f /vault/secrets/postgres-secret ]; do
+              echo "Secrets file not found, waiting... ($counter)"
+              sleep 2
+              counter=$((counter + 1))
+              if [ $counter -gt 30 ]; then
+                echo "Timeout waiting for Vault secrets"
+                exit 1
+              fi
+            done
+            
+            # Загружаем секреты
+            echo "Secrets found, loading..."
+            . /vault/secrets/postgres-secret
+            
+            # Проверяем что переменные установились
+            echo "=== PostgreSQL Configuration ==="
+            echo "POSTGRES_DB: $POSTGRES_DB"
+            echo "POSTGRES_USER: $POSTGRES_USER"
+            echo "POSTGRES_PASSWORD: ***"
+            echo "POSTGRES_POSTGRES_PASSWORD: ***"
+            
+            # Запускаем PostgreSQL с переменными из Vault
+            echo "Starting PostgreSQL..."
+            exec docker-entrypoint.sh postgres
+        env:
+        - name: PGDATA
+          value: "/var/lib/postgresql/data/pgdata"
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          {{- toYaml .Values.postgresql.resources | nindent 12 }}
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              . /vault/secrets/postgres-secret
+              exec pg_isready -U $POSTGRES_USER -d $POSTGRES_DB
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              . /vault/secrets/postgres-secret
+              exec pg_isready -U $POSTGRES_USER -d $POSTGRES_DB
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc

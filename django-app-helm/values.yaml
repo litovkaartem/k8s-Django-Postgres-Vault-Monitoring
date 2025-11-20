@@ -1,0 +1,67 @@
+# Global settings
+global:
+  namespace: django-app
+
+# Vault configuration
+vault:
+  address: "http://vault.vault.svc.cluster.local:8200"
+  role: "django-app"
+
+# PostgreSQL configuration
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "13"
+    pullPolicy: IfNotPresent
+  
+  persistence:
+    enabled: true
+    size: 10Gi
+  
+  service:
+    type: ClusterIP
+    port: 5432
+  
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+# Django application configuration
+django:
+  image:
+    repository: litowwwka/django-test
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  replicas: 1
+  
+  # УДАЛЕНО: env секция, так как все переменные теперь из Vault
+  # кроме несекретных настроек
+  allowed_hosts: "*"
+  
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  
+  service:
+    type: ClusterIP
+    port: 8000
+  
+  migrations:
+    enabled: true
+    backoffLimit: 3
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  # Без host - будет работать по любому hostname

@@ -1,0 +1,15 @@
+victoriametrics:
+  enabled: true
+  storage: 10Gi
+
+grafana:
+  enabled: true
+  storage: 5Gi
+  adminUser: admin
+  adminPassword: admin123
+
+ingress:
+  enabled: true
+  paths:
+    - path: /grafana
+      pathType: Prefix

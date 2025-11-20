@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: django-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: django-app
+spec:
+  type: {{ .Values.django.service.type }}
+  ports:
+  - port: {{ .Values.django.service.port }}
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: django-app

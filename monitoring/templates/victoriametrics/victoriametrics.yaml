@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoria-metrics
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victoria-metrics
+  template:
+    metadata:
+      labels:
+        app: victoria-metrics
+    spec:
+      serviceAccountName: victoria-metrics
+      initContainers:
+      - name: cleanup-storage
+        image: busybox:1.35
+        command: ['sh', '-c', 'rm -f /storage/flock.lock && echo "Storage cleaned"']
+        volumeMounts:
+        - name: storage
+          mountPath: /storage
+      containers:
+      - name: server
+        image: victoriametrics/victoria-metrics:v1.93.4
+        args:
+        - -storageDataPath=/storage
+        - -httpListenAddr=:8428
+        - -promscrape.config=/etc/vm/scrape.yml
+        ports:
+        - containerPort: 8428
+          name: http
+        volumeMounts:
+        - name: storage
+          mountPath: /storage
+        - name: config
+          mountPath: /etc/vm
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: victoria-metrics-pvc
+      - name: config
+        configMap:
+          name: victoria-metrics-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoria-metrics
+  namespace: monitoring
+spec:
+  ports:
+  - port: 8428
+    targetPort: 8428
+    protocol: TCP
+    name: http
+  selector:
+    app: victoria-metrics
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: victoria-metrics-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
